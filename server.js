@@ -8,7 +8,7 @@ const fs = require('fs-extra');
 const path = require('path');
 const { authenticator } = require('otplib');
 const protobuf = require('protobufjs');
-const base32Encode = require('base32-encode').default;
+const base32Encode = require('base32-encode');
 const { v4: uuidv4 } = require('uuid');
 const https = require('https');
 
