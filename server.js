@@ -20,43 +20,46 @@ const USERS_FILE = path.join(__dirname, 'users.json');
 const PROTO_FILE = path.join(__dirname, 'google_auth.proto');
 const { User, Account, connectDB } = require('./db');
 
-// Determine mode immediately to avoid race conditions
-// If MONGO_URI is set, we INTEND to use Mongo. Mongoose buffers commands.
+// --- Configuration & Initialization ---
+
+const isVercel = !!process.env.VERCEL;
+// If MONGO_URI is set, we INTEND to use Mongo.
 let useMongo = !!process.env.MONGO_URI;
 
-// If on Vercel and NO Mongo URI, we are in trouble. We can't use files.
-// Force it to be false, but functions will fail if they try to write.
+// If on Vercel and NO Mongo URI, warn user.
 if (isVercel && !useMongo) {
     console.error("WARNING: Running on Vercel without MONGO_URI. Persistence will fail.");
 }
 
-// Trigger connection immediately
+// Trigger connection logic immediately
 connectDB().then(res => {
     console.log(`DB Connection status: ${res}`);
-    // If connection failed but we expected it to work, we might want to fallback or log error
     if (!res && useMongo) {
         console.error("Critical: MONGO_URI present but connection failed.");
     }
 });
 
-// Middlewares
+// --- Middlewares ---
+
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
-// Vercel handles static files differently, but for standard Express this is fine
 app.use(express.static('public'));
 app.set('view engine', 'ejs');
 
-// Session Config (MemoryStore for Vercel / FileStore for Local)
-// Session Config (MemoryStore for Vercel / FileStore for Local)
-const isVercel = !!process.env.VERCEL;
-let sessionStore;
+// --- Session Setup ---
 
+let sessionStore;
 if (!isVercel) {
-    const FileStore = require('session-file-store')(session);
-    sessionStore = new FileStore({ path: './.sessions', ttl: 86400 });
+    // Only require FileStore if we actully need it (Local mode)
+    // This prevents Vercel from crashing on startup due to read-only FS check in session-file-store
+    try {
+        const FileStore = require('session-file-store')(session);
+        sessionStore = new FileStore({ path: './.sessions', ttl: 86400 });
+    } catch (e) {
+        console.error("Failed to init FileStore:", e);
+    }
 } else {
     console.log("Running on Vercel - Using MemoryStore");
-    // MemoryStore is the default if store is not provided
 }
 
 app.use(session({
