@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Add Account - Antigravity 2FA</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>Add Account</h1>
+            <a href="/" style="color: var(--text-secondary); text-decoration: none;"><i class="fas fa-arrow-left"></i>
+                Back to Dashboard</a>
+        </header>
+
+        <div class="form-container">
+            <div class="tabs">
+                <div class="tab active" onclick="switchTab('scan')">Scan QR</div>
+                <div class="tab" onclick="switchTab('manual')">Manual Entry</div>
+                <div class="tab" onclick="switchTab('migration')">Import Text</div>
+            </div>
+
+            <!-- SCAN TAB -->
+            <div id="scan" class="tab-content active">
+                <div id="reader"></div>
+                <p style="text-align: center; color: var(--text-secondary); margin-bottom: 1rem;">
+                    Point your camera at a QR code or upload an image file.
+                </p>
+                <div style="text-align: center;">
+                    <input type="file" id="qr-input-file" accept="image/*" style="display: none"
+                        onchange="handleFile(this)">
+                    <button class="btn" onclick="document.getElementById('qr-input-file').click()"
+                        style="margin: 0 auto;">
+                        <i class="fas fa-upload"></i> Upload Image
+                    </button>
+                    <div id="scan-error" style="color: var(--danger); margin-top: 1rem; display: none;"></div>
+                </div>
+            </div>
+
+            <!-- MANUAL TAB -->
+            <div id="manual" class="tab-content">
+                <div class="form-group">
+                    <label>Issuer (Service Name)</label>
+                    <input type="text" id="m-issuer" placeholder="e.g. Google, Facebook">
+                </div>
+                <div class="form-group">
+                    <label>Account Name (Email)</label>
+                    <input type="text" id="m-name" placeholder="user@example.com">
+                </div>
+                <div class="form-group">
+                    <label>Secret Key (Base32)</label>
+                    <input type="text" id="m-secret" placeholder="JBSWY3DPEHPK3PXP">
+                </div>
+                <button class="btn btn-primary" style="width: 100%" onclick="submitManual()">Add Account</button>
+            </div>
+
+            <!-- MIGRATION TEXT TAB -->
+            <div id="migration" class="tab-content">
+                <div class="form-group">
+                    <label>Migration URI or OTP Auth URI</label>
+                    <input type="text" id="migration-uri" placeholder="otpauth-migration://offline?data=...">
+                </div>
+                <button class="btn btn-primary" style="width: 100%" onclick="submitMigration()">Import</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="toast" class="toast">Success!</div>
+
+    <script>
+        let html5QrcodeScanner;
+
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(tabId).classList.add('active');
+
+            if (tabId === 'scan') {
+                startScanner();
+            } else {
+                stopScanner();
+            }
+        }
+
+        function startScanner() {
+            if (html5QrcodeScanner) return; // Already running logic could be added
+
+            // simpler implementation using Html5Qrcode class for more control
+            const html5QrCode = new Html5Qrcode("reader");
+
+            const config = { fps: 10, qrbox: { width: 250, height: 250 } };
+
+            // Prefer back camera
+            html5QrCode.start({ facingMode: "environment" }, config, onScanSuccess)
+                .catch(err => {
+                    // If camera fails, user can still upload
+                    console.log("Camera failed", err);
+                });
+
+            window.activeScanner = html5QrCode;
+        }
+
+        function stopScanner() {
+            if (window.activeScanner) {
+                window.activeScanner.stop().then(() => {
+                    window.activeScanner.clear();
+                    window.activeScanner = null;
+                }).catch(err => console.log(err));
+            }
+        }
+
+        // Auto start on load
+        startScanner();
+
+        function onScanSuccess(decodedText, decodedResult) {
+            console.log(`Code matched = ${decodedText}`, decodedResult);
+            processUri(decodedText);
+            stopScanner(); // Stop after success
+        }
+
+        async function handleFile(input) {
+            if (input.files.length == 0) return;
+
+            const imageFile = input.files[0];
+
+            // 1. Stop existing camera scan to prevent DOM ID conflict
+            if (window.activeScanner) {
+                try {
+                    await window.activeScanner.stop();
+                    window.activeScanner.clear();
+                } catch (e) {
+                    console.log("Error stopping scanner", e);
+                }
+                window.activeScanner = null;
+            }
+
+            // 2. Initialize new instance for file
+            const html5QrCode = new Html5Qrcode("reader");
+
+            try {
+                // Scan file
+                const decodedText = await html5QrCode.scanFile(imageFile, true);
+                processUri(decodedText);
+            } catch (err) {
+                console.log("html5-qrcode failed, trying jsQR fallback...");
+                try {
+                    const decodedText = await scanWithJsQR(imageFile);
+                    processUri(decodedText);
+                } catch (err2) {
+                    console.error("Scan error:", err, err2);
+                    document.getElementById('scan-error').innerText = "Could not read QR code. Try cropping the image to just the QR code, or ensure high contrast.";
+                    document.getElementById('scan-error').style.display = 'block';
+                }
+            }
+        }
+
+        function scanWithJsQR(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = () => {
+                    const img = new Image();
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        const context = canvas.getContext('2d');
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        context.drawImage(img, 0, 0);
+                        const imageData = context.getImageData(0, 0, img.width, img.height);
+                        const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                            inversionAttempts: "dontInvert",
+                        });
+                        if (code) {
+                            resolve(code.data);
+                        } else {
+                            reject('No QR found via jsQR');
+                        }
+                    };
+                    img.onerror = reject;
+                    img.src = reader.result;
+                };
+                reader.onerror = reject;
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function processUri(uri) {
+            if (uri.startsWith('otpauth-migration:')) {
+                // Handle Migration
+                submitMigrationReq(uri);
+            } else if (uri.startsWith('otpauth:')) {
+                // Handle Standard
+                // Parse params
+                try {
+                    const url = new URL(uri);
+                    const params = new URLSearchParams(url.search);
+                    const secret = params.get('secret');
+                    const issuer = params.get('issuer') || 'Unknown';
+                    // Pathname has name usually: /totp/Issuer:Name
+                    const label = decodeURIComponent(url.pathname.split(':').pop() || url.pathname.substring(1));
+
+                    if (secret) {
+                        await addManualReq(label, secret, issuer);
+                    } else {
+                        alert('Invalid OTP URI');
+                    }
+                } catch (e) {
+                    alert('Failed to parse OTP URI');
+                }
+            } else {
+                // Try as raw secret?
+                // alert('Unknown QR Code format. Must be otpauth:// or otpauth-migration://');
+                // Maybe the QR just contains the secret key
+                await addManualReq('Scanned Account', uri, 'Unknown');
+            }
+        }
+
+        async function submitManual() {
+            const name = document.getElementById('m-name').value;
+            const secret = document.getElementById('m-secret').value;
+            const issuer = document.getElementById('m-issuer').value;
+            await addManualReq(name, secret, issuer);
+        }
+
+        async function submitMigration() {
+            const uri = document.getElementById('migration-uri').value;
+            submitMigrationReq(uri);
+        }
+
+        // API Calls
+        async function addManualReq(name, secret, issuer) {
+            try {
+                const res = await fetch('/api/add-manual', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, secret, issuer })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    window.location.href = '/';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Request failed');
+            }
+        }
+
+        async function submitMigrationReq(uri) {
+            try {
+                const res = await fetch('/api/import-migration', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ migrationUri: uri })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`Successfully imported ${data.count} accounts.`);
+                    window.location.href = '/';
+                } else {
+                    alert('Error: ' + data.error);
+                }
+            } catch (e) {
+                alert('Request failed');
+            }
+        }
+
+        function showToast(msg) {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+
+</html>

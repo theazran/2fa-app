@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Antigravity 2FA</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.0/build/qrcode.min.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-shield-alt"></i> Antigravity 2FA</h1>
+            <p style="color: var(--text-secondary)">Secure Multi-Account Authenticator</p>
+        </header>
+
+        <div class="controls" style="justify-content: space-between; align-items: center;">
+            <div style="display: flex; gap: 0.5rem; flex: 1;">
+                <input type="text" id="searchBox" placeholder="Search accounts..."
+                    style="max-width: 200px; padding: 0.5rem; border-radius: 6px; border: 1px solid var(--border-color); outline: none;"
+                    onkeyup="filterAccounts()">
+                <a href="/add" class="btn btn-primary"><i class="fas fa-plus"></i> Add</a>
+                <a href="/api/export" class="btn"><i class="fas fa-download"></i> Backup</a>
+            </div>
+            <div style="display: flex; gap: 1rem; align-items: center;">
+                <button id="otpToggleBtn" class="btn" onclick="toggleOTP()"
+                    style="<%= otpEnabled ? 'background: rgba(16, 185, 129, 0.1); color: #10b981; border-color: rgba(16, 185, 129, 0.2);' : 'background: rgba(107, 114, 128, 0.1); color: #6b7280; border-color: rgba(107, 114, 128, 0.2);' %>">
+                    <i class="fas <%= otpEnabled ? 'fa-check-circle' : 'fa-times-circle' %>"></i> 2FA: <%= otpEnabled
+                        ? 'ON' : 'OFF' %>
+                </button>
+                <span style="color: var(--text-secondary);">Hi, <strong>
+                        <%= user %>
+                    </strong></span>
+                <a href="/logout" class="btn"
+                    style="background: rgba(239, 68, 68, 0.2); border-color: rgba(239, 68, 68, 0.3); color: #fca5a5;"><i
+                        class="fas fa-sign-out-alt"></i> Logout</a>
+            </div>
+        </div>
+
+        <div class="grid" id="account-grid">
+            <!-- Accounts will be populated here via JS for smoother updates, 
+                 but we can render server-side first for SEO/Speed -->
+            <% accounts.forEach(function(acc) { %>
+                <div class="card" id="card-<%= acc.id %>" onclick="copyCode('<%= acc.id %>')" style="cursor: pointer;"
+                    title="Click to Copy">
+                    <div class="progress-bar"></div>
+
+                    <div class="card-content">
+                        <div class="issuer">
+                            <%= acc.issuer %>
+                        </div>
+                        <div class="account-name">
+                            <%= acc.name %>
+                        </div>
+                        <div class="code-display">--- ---</div>
+                    </div>
+
+                    <div class="card-actions">
+                        <button class="action-btn"
+                            onclick="openShowQR(event, '<%= acc.id %>', '<%= acc.secret %>', '<%= acc.issuer %>', '<%= acc.name %>')"
+                            title="Show QR"><i class="fas fa-qrcode"></i></button>
+                        <button class="action-btn"
+                            onclick="openEdit(event, '<%= acc.id %>', '<%= acc.name %>', '<%= acc.issuer %>')"
+                            title="Edit"><i class="fas fa-pencil-alt"></i></button>
+                        <button class="action-btn delete"
+                            onclick="deleteAccount(event, '<%= acc.id %>', '<%= acc.name %>')" title="Delete"><i
+                                class="fas fa-trash-alt"></i></button>
+                    </div>
+                </div>
+                <% }); %>
+
+                    <% if (accounts.length===0) { %>
+                        <div
+                            style="grid-column: 1/-1; text-align: center; color: var(--text-secondary); padding: 3rem;">
+                            <i class="fas fa-ghost" style="font-size: 3rem; margin-bottom: 1rem; opacity: 0.5;"></i>
+                            <p>No accounts found. Add one to get started.</p>
+                        </div>
+                        <% } %>
+        </div>
+    </div>
+
+    <!-- EDIT AND QR MODALS -->
+
+    <div id="modalOverlay"
+        style="display: none; position: fixed; top:0; left:0; width:100%; height:100%; background: rgba(0,0,0,0.5); z-index: 1000; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+
+        <!-- EDIT MODAL -->
+        <div id="editModal" class="form-container" style="display: none; max-width: 400px; animation: none;">
+            <h2 style="margin-bottom: 1rem;">Edit Account</h2>
+            <div class="form-group">
+                <label>Issuer</label>
+                <input type="text" id="edit-issuer">
+            </div>
+            <div class="form-group">
+                <label>Account Name</label>
+                <input type="text" id="edit-name">
+            </div>
+            <input type="hidden" id="edit-id">
+            <div style="display: flex; gap: 1rem;">
+                <button class="btn btn-primary" onclick="submitEdit()" style="flex: 1;">Save</button>
+                <button class="btn" onclick="closeModals()" style="flex: 1;">Cancel</button>
+            </div>
+        </div>
+
+        <!-- QR MODAL -->
+        <div id="qrModal" class="form-container"
+            style="display: none; max-width: 350px; text-align: center; animation: none;">
+            <h2 style="margin-bottom: 0.5rem;">Scan Code</h2>
+            <p id="qr-desc" style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 1rem;"></p>
+            <canvas id="qr-canvas" style="border: 5px solid white; border-radius: 8px;"></canvas>
+            <button class="btn" onclick="closeModals()" style="width: 100%; margin-top: 1rem;">Close</button>
+        </div>
+
+    </div>
+
+    <div id="toast" class="toast">Code Copied!</div>
+
+    <script>
+        // Modal functions
+        function closeModals() {
+            document.getElementById('modalOverlay').style.display = 'none';
+            document.getElementById('editModal').style.display = 'none';
+            document.getElementById('qrModal').style.display = 'none';
+        }
+
+        function openEdit(e, id, name, issuer) {
+            if (e) e.stopPropagation();
+            document.getElementById('edit-id').value = id;
+            document.getElementById('edit-name').value = name;
+            document.getElementById('edit-issuer').value = issuer;
+
+            document.getElementById('modalOverlay').style.display = 'flex';
+            document.getElementById('editModal').style.display = 'block';
+        }
+
+        async function submitEdit() {
+            const id = document.getElementById('edit-id').value;
+            const name = document.getElementById('edit-name').value;
+            const issuer = document.getElementById('edit-issuer').value;
+
+            try {
+                const res = await fetch(`/api/update/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, issuer })
+                });
+
+                if (res.ok) {
+                    location.reload(); // Simple reload to reflect changes
+                } else {
+                    alert('Failed to update');
+                }
+            } catch (e) {
+                alert('Update Error');
+            }
+        }
+
+        async function toggleOTP() {
+            const btn = document.getElementById('otpToggleBtn');
+            const isEnabled = btn.innerText.includes('ON');
+            const newState = !isEnabled;
+
+            if (!confirm(`Turn 2FA OTP ${newState ? 'ON' : 'OFF'}?`)) return;
+
+            try {
+                const res = await fetch('/api/settings/toggle-otp', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ enabled: newState })
+                });
+
+                if (res.ok) {
+                    location.reload();
+                } else {
+                    const data = await res.json();
+                    alert(data.error || 'Failed to toggle');
+                }
+            } catch (e) {
+                alert('Connection Error');
+            }
+        }
+
+        function openShowQR(e, id, secret, issuer, name) {
+            if (e) e.stopPropagation();
+
+            // Generate otpauth URI
+            const uri = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(name)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&digits=6&period=30`;
+
+            QRCode.toCanvas(document.getElementById('qr-canvas'), uri, { width: 250 }, function (error) {
+                if (error) console.error(error);
+            });
+
+            document.getElementById('qr-desc').innerText = `${issuer} (${name})`;
+
+            document.getElementById('modalOverlay').style.display = 'flex';
+            document.getElementById('qrModal').style.display = 'block';
+        }
+        // Update loop
+        async function updateCodes() {
+            try {
+                const response = await fetch('/api/codes');
+                const data = await response.json();
+
+                data.forEach(item => {
+                    const card = document.getElementById(`card-${item.id}`);
+                    if (card) {
+                        const codeDisplay = card.querySelector('.code-display');
+                        const progressBar = card.querySelector('.progress-bar');
+
+                        // Format code XXX XXX
+                        const fmtCode = item.token.replace(/(.{3})/g, '$1 ').trim();
+                        if (codeDisplay.innerText.replace(/\s/g, '') !== item.token) {
+                            codeDisplay.innerText = fmtCode;
+                            // Flash effect?
+                        }
+
+                        // Update progress
+                        // timeRemaining is usually 30 -> 0
+                        // width% = (timeRemaining / 30) * 100
+                        const pct = (item.timeRemaining / 30) * 100;
+                        progressBar.style.transform = `scaleX(${pct / 100})`;
+
+                        if (item.timeRemaining < 5) {
+                            progressBar.style.background = 'var(--danger)';
+                        } else {
+                            progressBar.style.background = 'var(--accent)';
+                        }
+                    }
+                });
+            } catch (e) {
+                console.error("Failed to fetch codes", e);
+            }
+        }
+
+        function copyCode(id) {
+            const card = document.getElementById(`card-${id}`);
+            const code = card.querySelector('.code-display').innerText.replace(/\s/g, '');
+            navigator.clipboard.writeText(code);
+            showToast();
+        }
+
+        function showToast(msg = "Code Copied!") {
+            const toast = document.getElementById('toast');
+            toast.innerText = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2000);
+        }
+
+        async function deleteAccount(event, id, name) {
+            if (event) event.stopPropagation();
+            if (!confirm(`Are you sure you want to delete ${name}?`)) return;
+
+            try {
+                const res = await fetch(`/api/delete/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    // Remove element locally
+                    const card = document.getElementById(`card-${id}`);
+                    if (card) card.remove();
+                    showToast("Account Deleted");
+                } else {
+                    alert("Failed to delete");
+                }
+            } catch (e) {
+                alert("Error deleting account");
+            }
+        }
+
+        function filterAccounts() {
+            const input = document.getElementById('searchBox');
+            const filter = input.value.toLowerCase();
+            const grid = document.getElementById('account-grid');
+            const cards = grid.getElementsByClassName('card');
+
+            for (let i = 0; i < cards.length; i++) {
+                const name = cards[i].querySelector('.account-name').textContent || "";
+                const issuer = cards[i].querySelector('.issuer').textContent || "";
+
+                if (name.toLowerCase().indexOf(filter) > -1 || issuer.toLowerCase().indexOf(filter) > -1) {
+                    cards[i].style.display = "flex";
+                } else {
+                    cards[i].style.display = "none";
+                }
+            }
+        }
+
+        // Global Shortcuts
+        document.addEventListener('keydown', function (e) {
+            // Ctrl+F or Cmd+F
+            if ((e.ctrlKey || e.metaKey) && e.key === 'f') {
+                e.preventDefault();
+                document.getElementById('searchBox').focus();
+            }
+            // / key
+            if (e.key === '/' && document.activeElement !== document.getElementById('searchBox')) {
+                e.preventDefault();
+                document.getElementById('searchBox').focus();
+            }
+        });
+
+        setInterval(updateCodes, 1000);
+        updateCodes(); // Initial call
+    </script>
+</body>
+
+</html>

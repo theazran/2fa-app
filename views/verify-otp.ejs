@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verify OTP - Antigravity 2FA</title>
+    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+
+<body>
+    <div class="container" style="max-width: 400px; padding-top: 4rem;">
+        <header>
+            <h1><i class="fas fa-key"></i> Verify OTP</h1>
+            <p style="color: var(--text-secondary)">We sent a code to your WhatsApp: <strong>
+                    <%= phone %>
+                </strong></p>
+        </header>
+
+        <div class="form-container">
+            <% if (error) { %>
+                <div
+                    style="background: #fee2e2; color: #dc2626; padding: 0.75rem; border-radius: 6px; margin-bottom: 1rem; border: 1px solid #fecaca;">
+                    <%= error %>
+                </div>
+                <% } %>
+
+                    <form action="/verify-otp" method="POST">
+                        <div class="form-group">
+                            <label>Enter 6-digit OTP</label>
+                            <input type="text" name="otp" placeholder="123456" required
+                                style="font-size: 1.5rem; letter-spacing: 0.2rem; text-align: center;">
+                        </div>
+                        <button type="submit" class="btn btn-primary"
+                            style="width: 100%; justify-content: center; margin-bottom: 1rem;">Verify</button>
+                    </form>
+
+                    <div style="text-align: center; margin-top: 1rem;">
+                        <button id="resendBtn" class="btn" style="width:100%; justify-content: center;"
+                            onclick="resendOTP()" disabled>
+                            Resend Code (<span id="timer">10</span>s)
+                        </button>
+                    </div>
+
+                    <a href="/login"
+                        style="display: block; text-align: center; color: var(--accent); text-decoration: none; margin-top: 1rem;">Back
+                        to Login</a>
+        </div>
+    </div>
+
+    <script>
+        let timeLeft = 10;
+        let attempt = 1;
+
+        function updateTimer() {
+            const btn = document.getElementById('resendBtn');
+            const timer = document.getElementById('timer');
+
+            if (timeLeft > 0) {
+                timeLeft--;
+                timer.innerText = timeLeft;
+                setTimeout(updateTimer, 1000);
+            } else {
+                btn.disabled = false;
+                btn.innerHTML = `<i class="fas fa-redo"></i> Resend Code`;
+            }
+        }
+
+        // Start initial timer
+        updateTimer();
+
+        async function resendOTP() {
+            const btn = document.getElementById('resendBtn');
+            btn.disabled = true;
+            btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Sending...`;
+
+            try {
+                const res = await fetch('/resend-otp', { method: 'POST' });
+                const data = await res.json();
+
+                if (data.success) {
+                    attempt++;
+                    timeLeft = 10 * attempt; // 20s, 30s...
+                    btn.disabled = true;
+                    btn.innerHTML = `Resend Code (<span id="timer">${timeLeft}</span>s)`;
+                    updateTimer(); // Restart timer
+                } else {
+                    alert(data.error || "Failed");
+                    btn.disabled = false;
+                    btn.innerText = "Resend Code";
+                }
+            } catch (e) {
+                alert("Connection error");
+                btn.disabled = false;
+                btn.innerText = "Resend Code";
+            }
+        }
+    </script>
+</body>
+
+</html>
