@@ -18,8 +18,19 @@ const DATA_FILE = path.join(__dirname, 'accounts.json');
 const USERS_FILE = path.join(__dirname, 'users.json');
 const PROTO_FILE = path.join(__dirname, 'google_auth.proto');
 const { User, Account, connectDB } = require('./db');
-let useMongo = false;
-connectDB().then(res => { useMongo = res; });
+
+// Determine mode immediately to avoid race conditions
+// If MONGO_URI is set, we INTEND to use Mongo. Mongoose buffers commands.
+let useMongo = !!process.env.MONGO_URI;
+
+// Trigger connection immediately
+connectDB().then(res => {
+    console.log(`DB Connection status: ${res}`);
+    // If connection failed but we expected it to work, we might want to fallback or log error
+    if (!res && useMongo) {
+        console.error("Critical: MONGO_URI present but connection failed.");
+    }
+});
 
 // Middlewares
 app.use(bodyParser.json());
@@ -458,13 +469,7 @@ module.exports = app;
 
 // Start (Only listen if running directly)
 if (require.main === module) {
-    // Try connecting to DB first
-    connectDB().then(connected => {
-        useMongo = connected;
-        console.log("Storage Mode: " + (useMongo ? "MongoDB Database" : "Local JSON Files"));
-
-        app.listen(PORT, () => {
-            console.log(`Server running at http://localhost:${PORT}`);
-        });
+    app.listen(PORT, () => {
+        console.log(`Server running at http://localhost:${PORT}`);
     });
 }
