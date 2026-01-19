@@ -15,9 +15,9 @@ const https = require('https');
 const app = express();
 app.set('trust proxy', 1); // Trust first proxy (Vercel)
 const PORT = 3000;
-const DATA_FILE = path.join(__dirname, 'accounts.json');
-const USERS_FILE = path.join(__dirname, 'users.json');
-const PROTO_FILE = path.join(__dirname, 'google_auth.proto');
+const DATA_FILE = path.resolve(__dirname, 'accounts.json');
+const USERS_FILE = path.resolve(__dirname, 'users.json');
+const PROTO_FILE = path.resolve(__dirname, 'google_auth.proto');
 const { User, Account, connectDB } = require('./db');
 
 // --- Configuration & Initialization ---
