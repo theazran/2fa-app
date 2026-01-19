@@ -13,6 +13,7 @@ const { v4: uuidv4 } = require('uuid');
 const https = require('https');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy (Vercel)
 const PORT = 3000;
 const DATA_FILE = path.join(__dirname, 'accounts.json');
 const USERS_FILE = path.join(__dirname, 'users.json');
@@ -22,6 +23,12 @@ const { User, Account, connectDB } = require('./db');
 // Determine mode immediately to avoid race conditions
 // If MONGO_URI is set, we INTEND to use Mongo. Mongoose buffers commands.
 let useMongo = !!process.env.MONGO_URI;
+
+// If on Vercel and NO Mongo URI, we are in trouble. We can't use files.
+// Force it to be false, but functions will fail if they try to write.
+if (isVercel && !useMongo) {
+    console.error("WARNING: Running on Vercel without MONGO_URI. Persistence will fail.");
+}
 
 // Trigger connection immediately
 connectDB().then(res => {
