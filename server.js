@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const session = require('express-session');
-const FileStore = require('session-file-store')(session);
+// const FileStore = require('session-file-store')(session); // Moved to lazy load
 const bodyParser = require('body-parser');
 const bcrypt = require('bcryptjs');
 const fs = require('fs-extra');
@@ -45,6 +45,7 @@ const isVercel = !!process.env.VERCEL;
 let sessionStore;
 
 if (!isVercel) {
+    const FileStore = require('session-file-store')(session);
     sessionStore = new FileStore({ path: './.sessions', ttl: 86400 });
 } else {
     console.log("Running on Vercel - Using MemoryStore");
