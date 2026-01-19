@@ -40,12 +40,15 @@ app.use(express.static('public'));
 app.set('view engine', 'ejs');
 
 // Session Config (MemoryStore for Vercel / FileStore for Local)
-const isVercel = process.env.VERCEL === '1';
-let sessionStore = new FileStore({ path: './.sessions', ttl: 86400 });
+// Session Config (MemoryStore for Vercel / FileStore for Local)
+const isVercel = !!process.env.VERCEL;
+let sessionStore;
 
-if (isVercel) {
+if (!isVercel) {
+    sessionStore = new FileStore({ path: './.sessions', ttl: 86400 });
+} else {
     console.log("Running on Vercel - Using MemoryStore");
-    sessionStore = undefined; // defaults to MemoryStore
+    // MemoryStore is the default if store is not provided
 }
 
 app.use(session({
